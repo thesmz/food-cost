@@ -31,6 +31,8 @@ def save_invoices(supabase: Client, records: List[Dict[str, Any]]) -> int:
         return 0
     
     saved_count = 0
+    batch_data = []
+    
     for record in records:
         try:
             # Convert date string to proper format
@@ -44,6 +46,10 @@ def save_invoices(supabase: Client, records: List[Dict[str, Any]]) -> int:
                     except ValueError:
                         continue
             
+            # Skip if no valid date
+            if not invoice_date:
+                continue
+            
             data = {
                 'vendor': record.get('vendor', ''),
                 'invoice_date': invoice_date,
@@ -54,24 +60,31 @@ def save_invoices(supabase: Client, records: List[Dict[str, Any]]) -> int:
                 'amount': float(record.get('amount', 0))
             }
             
-            # Check for duplicates (same vendor, date, item, amount)
-            existing = supabase.table('invoices').select('id').eq(
-                'vendor', data['vendor']
-            ).eq(
-                'invoice_date', data['invoice_date']
-            ).eq(
-                'item_name', data['item_name']
-            ).eq(
-                'amount', data['amount']
-            ).execute()
-            
-            if not existing.data:  # No duplicate found
-                supabase.table('invoices').insert(data).execute()
-                saved_count += 1
+            batch_data.append(data)
                 
         except Exception as e:
-            st.error(f"Error saving invoice: {e}")
             continue
+    
+    # Batch insert (much faster than one-by-one)
+    if batch_data:
+        try:
+            # Insert in chunks of 50 to avoid timeout
+            chunk_size = 50
+            for i in range(0, len(batch_data), chunk_size):
+                chunk = batch_data[i:i + chunk_size]
+                result = supabase.table('invoices').upsert(
+                    chunk,
+                    on_conflict='vendor,invoice_date,item_name,amount'
+                ).execute()
+                saved_count += len(chunk)
+        except Exception as e:
+            # If upsert fails (no unique constraint), try simple insert
+            try:
+                for data in batch_data:
+                    supabase.table('invoices').insert(data).execute()
+                    saved_count += 1
+            except Exception as e2:
+                st.warning(f"Error batch saving invoices: {e2}")
     
     return saved_count
 
@@ -85,6 +98,8 @@ def save_sales(supabase: Client, df: pd.DataFrame) -> int:
         return 0
     
     saved_count = 0
+    batch_data = []
+    
     for _, row in df.iterrows():
         try:
             # Convert month (YYYY-MM) or date to proper date format
@@ -120,24 +135,22 @@ def save_sales(supabase: Client, df: pd.DataFrame) -> int:
                 'net_total': float(row.get('net_total', 0)) if pd.notna(row.get('net_total')) else 0
             }
             
-            # Check for duplicates
-            existing = supabase.table('sales').select('id').eq(
-                'sale_date', data['sale_date']
-            ).eq(
-                'code', data['code']
-            ).eq(
-                'item_name', data['item_name']
-            ).eq(
-                'qty', data['qty']
-            ).execute()
-            
-            if not existing.data:  # No duplicate found
-                supabase.table('sales').insert(data).execute()
-                saved_count += 1
+            batch_data.append(data)
                 
         except Exception as e:
-            st.error(f"Error saving sale: {e}")
             continue
+    
+    # Batch insert (much faster than one-by-one)
+    if batch_data:
+        try:
+            # Insert in chunks of 100 to avoid timeout
+            chunk_size = 100
+            for i in range(0, len(batch_data), chunk_size):
+                chunk = batch_data[i:i + chunk_size]
+                result = supabase.table('sales').insert(chunk).execute()
+                saved_count += len(chunk)
+        except Exception as e:
+            st.warning(f"Error batch saving sales: {e}")
     
     return saved_count
 
