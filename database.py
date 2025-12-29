@@ -169,24 +169,39 @@ def load_invoices(supabase: Client, start_date: Optional[date] = None,
                   end_date: Optional[date] = None, vendor: Optional[str] = None) -> pd.DataFrame:
     """
     Load invoices from Supabase with optional filters
+    Uses pagination to get ALL rows
     """
     if not supabase:
         return pd.DataFrame()
     
     try:
-        query = supabase.table('invoices').select('*')
+        all_data = []
+        page_size = 1000
+        offset = 0
         
-        if start_date:
-            query = query.gte('invoice_date', start_date.isoformat())
-        if end_date:
-            query = query.lte('invoice_date', end_date.isoformat())
-        if vendor:
-            query = query.ilike('vendor', f'%{vendor}%')
+        while True:
+            query = supabase.table('invoices').select('*')
+            
+            if start_date:
+                query = query.gte('invoice_date', start_date.isoformat())
+            if end_date:
+                query = query.lte('invoice_date', end_date.isoformat())
+            if vendor:
+                query = query.ilike('vendor', f'%{vendor}%')
+            
+            # Paginate with range
+            result = query.order('id').range(offset, offset + page_size - 1).execute()
+            
+            if result.data:
+                all_data.extend(result.data)
+                if len(result.data) < page_size:
+                    break
+                offset += page_size
+            else:
+                break
         
-        result = query.order('invoice_date', desc=True).execute()
-        
-        if result.data:
-            df = pd.DataFrame(result.data)
+        if all_data:
+            df = pd.DataFrame(all_data)
             # Rename columns to match expected format
             df = df.rename(columns={
                 'invoice_date': 'date',
@@ -204,25 +219,40 @@ def load_sales(supabase: Client, start_date: Optional[date] = None,
                end_date: Optional[date] = None, item_filter: Optional[str] = None) -> pd.DataFrame:
     """
     Load sales from Supabase with optional filters
+    Uses pagination to get ALL rows (Supabase default limit is 1000)
     """
     if not supabase:
         return pd.DataFrame()
     
     try:
-        # Use a large limit to ensure we get all rows (Supabase default is 1000)
-        query = supabase.table('sales').select('*').limit(10000)
+        all_data = []
+        page_size = 1000
+        offset = 0
         
-        if start_date:
-            query = query.gte('sale_date', start_date.isoformat())
-        if end_date:
-            query = query.lte('sale_date', end_date.isoformat())
-        if item_filter:
-            query = query.ilike('item_name', f'%{item_filter}%')
+        while True:
+            query = supabase.table('sales').select('*')
+            
+            if start_date:
+                query = query.gte('sale_date', start_date.isoformat())
+            if end_date:
+                query = query.lte('sale_date', end_date.isoformat())
+            if item_filter:
+                query = query.ilike('item_name', f'%{item_filter}%')
+            
+            # Paginate with range
+            result = query.order('id').range(offset, offset + page_size - 1).execute()
+            
+            if result.data:
+                all_data.extend(result.data)
+                if len(result.data) < page_size:
+                    # Last page
+                    break
+                offset += page_size
+            else:
+                break
         
-        result = query.order('sale_date', desc=True).execute()
-        
-        if result.data:
-            df = pd.DataFrame(result.data)
+        if all_data:
+            df = pd.DataFrame(all_data)
             # Rename columns to match expected format
             df = df.rename(columns={
                 'sale_date': 'date',
