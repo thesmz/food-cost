@@ -289,6 +289,25 @@ def display_beef_analysis(sales_df, invoices_df, beef_per_serving):
         display_df.columns = ['Date/日付', 'Item/品目', 'Qty/数量', 'Unit/単位', 'Unit Price/単価', 'Amount/金額']
         display_df['Amount/金額'] = display_df['Amount/金額'].apply(lambda x: f"¥{x:,.0f}")
         st.dataframe(display_df, use_container_width=True)
+    
+    # Detailed sales breakdown
+    if not beef_sales.empty:
+        st.subheader("🍽️ Sales Details / 売上明細")
+        sales_display = beef_sales[['code', 'name', 'category', 'qty', 'price', 'net_total']].copy()
+        sales_display.columns = ['Code/コード', 'Item/品目', 'Category/カテゴリ', 'Qty/数量', 'Price/単価', 'Revenue/売上']
+        sales_display['Price/単価'] = sales_display['Price/単価'].apply(lambda x: f"¥{x:,.0f}" if x > 0 else "-")
+        sales_display['Revenue/売上'] = sales_display['Revenue/売上'].apply(lambda x: f"¥{x:,.0f}" if x > 0 else "-")
+        st.dataframe(sales_display, use_container_width=True)
+        
+        # Summary by category
+        st.subheader("📊 Sales by Category / カテゴリ別売上")
+        category_summary = beef_sales.groupby('category').agg({
+            'qty': 'sum',
+            'net_total': 'sum'
+        }).reset_index()
+        category_summary.columns = ['Category/カテゴリ', 'Qty/数量', 'Revenue/売上']
+        category_summary['Revenue/売上'] = category_summary['Revenue/売上'].apply(lambda x: f"¥{x:,.0f}")
+        st.dataframe(category_summary, use_container_width=True)
 
 
 def display_caviar_analysis(sales_df, invoices_df, caviar_per_serving):
@@ -357,6 +376,25 @@ def display_caviar_analysis(sales_df, invoices_df, caviar_per_serving):
         display_df.columns = ['Date/日付', 'Item/品目', 'Amount/金額']
         display_df['Amount/金額'] = display_df['Amount/金額'].apply(lambda x: f"¥{x:,.0f}")
         st.dataframe(display_df, use_container_width=True)
+    
+    # Detailed sales breakdown
+    if not caviar_sales.empty:
+        st.subheader("🍽️ Sales Details / 売上明細")
+        sales_display = caviar_sales[['code', 'name', 'category', 'qty', 'price', 'net_total']].copy()
+        sales_display.columns = ['Code/コード', 'Item/品目', 'Category/カテゴリ', 'Qty/数量', 'Price/単価', 'Revenue/売上']
+        sales_display['Price/単価'] = sales_display['Price/単価'].apply(lambda x: f"¥{x:,.0f}" if x > 0 else "-")
+        sales_display['Revenue/売上'] = sales_display['Revenue/売上'].apply(lambda x: f"¥{x:,.0f}" if x > 0 else "-")
+        st.dataframe(sales_display, use_container_width=True)
+        
+        # Summary by category
+        st.subheader("📊 Sales by Category / カテゴリ別売上")
+        category_summary = caviar_sales.groupby('category').agg({
+            'qty': 'sum',
+            'net_total': 'sum'
+        }).reset_index()
+        category_summary.columns = ['Category/カテゴリ', 'Qty/数量', 'Revenue/売上']
+        category_summary['Revenue/売上'] = category_summary['Revenue/売上'].apply(lambda x: f"¥{x:,.0f}")
+        st.dataframe(category_summary, use_container_width=True)
 
 
 def display_vendor_items(invoices_df):
