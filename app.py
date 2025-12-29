@@ -144,10 +144,10 @@ def main():
         )
         
         invoice_files = st.file_uploader(
-            "Invoices (PDF) / 請求書",
-            type=['pdf'],
+            "Invoices (PDF/Excel) / 請求書",
+            type=['pdf', 'xlsx', 'xls'],
             accept_multiple_files=True,
-            help="Upload vendor invoices (PDF)"
+            help="Upload vendor invoices (PDF or Excel)"
         )
         
         # Process and save uploaded files

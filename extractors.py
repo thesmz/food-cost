@@ -136,12 +136,19 @@ def extract_sales_data(uploaded_file) -> pd.DataFrame:
 
 def extract_invoice_data(uploaded_file) -> list:
     """
-    Extract invoice data from PDF file
-    Handles both text-based PDFs and scanned images (with OCR)
+    Extract invoice data from PDF or Excel file
+    Handles both text-based PDFs, scanned images (with OCR), and Excel files
     
     Returns list of dictionaries with:
     - vendor, date, item_name, quantity, unit, unit_price, amount
     """
+    filename = uploaded_file.name.lower()
+    
+    # Handle Excel files
+    if filename.endswith('.xlsx') or filename.endswith('.xls'):
+        return extract_invoice_from_excel(uploaded_file)
+    
+    # Handle PDF files
     try:
         # Save uploaded file to temp location
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
@@ -179,23 +186,115 @@ def extract_invoice_data(uploaded_file) -> list:
             return []
         
         # Determine vendor and parse accordingly
-        filename = uploaded_file.name.lower()
-        
         if 'hirayama' in filename or 'meat' in filename or 'ひら山' in text_content:
             return parse_hirayama_invoice(text_content)
         elif 'french' in filename or 'fnb' in filename or 'caviar' in filename or 'フレンチ' in text_content:
             return parse_french_fnb_invoice(text_content)
         else:
             # Try to auto-detect based on content
-            if '和牛' in text_content or 'ヒレ' in text_content:
-                return parse_hirayama_invoice(text_content)
-            elif 'キャビア' in text_content or 'KAVIARI' in text_content:
+            if 'キャビア' in text_content or 'KAVIARI' in text_content:
                 return parse_french_fnb_invoice(text_content)
-        
-        return []
+            elif '和牛ヒレ' in text_content or 'ひら山' in text_content:
+                return parse_hirayama_invoice(text_content)
+            else:
+                print(f"Unknown vendor format in file: {filename}")
+                return []
     
     except Exception as e:
         print(f"Error extracting invoice data: {e}")
+        return []
+
+
+def extract_invoice_from_excel(uploaded_file) -> list:
+    """
+    Extract invoice data from Excel file (French F&B format)
+    """
+    import pandas as pd
+    from io import BytesIO
+    
+    records = []
+    
+    try:
+        # Read file content into BytesIO for pandas
+        file_content = uploaded_file.read()
+        uploaded_file.seek(0)
+        
+        # Read Excel file
+        xl = pd.ExcelFile(BytesIO(file_content))
+        
+        for sheet_name in xl.sheet_names:
+            df = pd.read_excel(BytesIO(file_content), sheet_name=sheet_name, header=None)
+            
+            if df.empty:
+                continue
+            
+            # Process data rows (skip header row 0)
+            for idx in range(1, len(df)):
+                row = df.iloc[idx]
+                
+                try:
+                    # French F&B Excel format columns:
+                    # 15: 伝票日付 (invoice date)
+                    # 30: 商品名 (product name) 
+                    # 32: 単価 (unit price)
+                    # 33: 数量 (quantity)
+                    # 34: 単位 (unit)
+                    # 35: 商品金額 (amount)
+                    
+                    date_val = row.iloc[15] if len(row) > 15 else None
+                    product_name = str(row.iloc[30]) if len(row) > 30 and pd.notna(row.iloc[30]) else ""
+                    unit_price = row.iloc[32] if len(row) > 32 else 0
+                    quantity = row.iloc[33] if len(row) > 33 else 0
+                    unit = str(row.iloc[34]) if len(row) > 34 and pd.notna(row.iloc[34]) else ""
+                    amount = row.iloc[35] if len(row) > 35 else 0
+                    
+                    # Skip empty or invalid rows
+                    if not product_name or product_name == 'nan' or pd.isna(amount):
+                        continue
+                    
+                    # Skip shipping fees and negative amounts (returns)
+                    if '宅配運賃' in product_name or '運賃' in product_name:
+                        continue
+                    if float(amount) <= 0:
+                        continue
+                    
+                    # Parse date
+                    if pd.notna(date_val):
+                        if hasattr(date_val, 'strftime'):
+                            date_str = date_val.strftime('%Y-%m-%d')
+                        else:
+                            date_str = str(date_val)[:10]
+                    else:
+                        date_str = "2025-10-01"  # Default
+                    
+                    # Convert quantity for caviar (cans to grams)
+                    qty_val = float(quantity) if pd.notna(quantity) else 0
+                    unit_str = str(unit).strip()
+                    
+                    # For caviar, convert cans to grams
+                    if 'キャビア' in product_name or 'KAVIARI' in product_name or 'キャヴィア' in product_name:
+                        if unit_str == '缶':
+                            qty_val = qty_val * 100  # 100g per can
+                            unit_str = 'g'
+                        product_name = "KAVIARI キャビア クリスタル 100g"
+                    
+                    records.append({
+                        'vendor': 'フレンチ・エフ・アンド・ビー (French F&B Japan)',
+                        'date': date_str,
+                        'item_name': product_name.strip(),
+                        'quantity': qty_val,
+                        'unit': unit_str,
+                        'unit_price': float(unit_price) if pd.notna(unit_price) else 0,
+                        'amount': float(amount)
+                    })
+                    
+                except (IndexError, ValueError, TypeError) as e:
+                    continue
+        
+        return records
+    
+    except Exception as e:
+        print(f"Error extracting Excel invoice: {e}")
         return []
 
 
