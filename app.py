@@ -68,6 +68,10 @@ def main():
     st.title("🍽️ Purchasing Evaluation System")
     st.markdown("**購買評価システム** | The Shinmonzen")
     
+    # Initialize session state for file uploader reset
+    if 'upload_key' not in st.session_state:
+        st.session_state.upload_key = 0
+    
     # Initialize Supabase
     supabase = init_supabase()
     
@@ -96,40 +100,79 @@ def main():
         else:
             db_min_date, db_max_date = None, None
         
-        # Default to last month if no data
-        default_end = db_max_date or date.today()
-        default_start = db_min_date or (default_end - timedelta(days=30))
+        # Show available data range
+        if db_min_date and db_max_date:
+            st.caption(f"📊 Data available: {db_min_date} ~ {db_max_date}")
+        
+        # Initialize session state for dates if not set
+        if 'filter_start' not in st.session_state:
+            if db_min_date:
+                st.session_state.filter_start = db_min_date.replace(day=1)
+            else:
+                st.session_state.filter_start = date.today().replace(day=1)
+        
+        if 'filter_end' not in st.session_state:
+            if db_max_date:
+                # Get last day of max date's month
+                if db_max_date.month == 12:
+                    st.session_state.filter_end = date(db_max_date.year, 12, 31)
+                else:
+                    next_month = db_max_date.replace(day=1, month=db_max_date.month + 1)
+                    st.session_state.filter_end = next_month - timedelta(days=1)
+            else:
+                st.session_state.filter_end = date.today()
+        
+        # Update session state if database range expanded
+        if db_min_date and st.session_state.filter_start > db_min_date:
+            st.session_state.filter_start = db_min_date.replace(day=1)
+        if db_max_date:
+            month_end = date(db_max_date.year, 12, 31) if db_max_date.month == 12 else (db_max_date.replace(day=1, month=db_max_date.month + 1) - timedelta(days=1))
+            if st.session_state.filter_end < month_end:
+                st.session_state.filter_end = month_end
         
         col1, col2 = st.columns(2)
         with col1:
             start_date = st.date_input(
                 "From / 開始日",
-                value=default_start,
+                value=st.session_state.filter_start,
                 min_value=date(2020, 1, 1),
-                max_value=default_end
+                max_value=date.today(),
+                key="date_start_input"
             )
+            st.session_state.filter_start = start_date
         with col2:
             end_date = st.date_input(
                 "To / 終了日",
-                value=default_end,
-                min_value=start_date,
-                max_value=date.today()
+                value=st.session_state.filter_end,
+                min_value=date(2020, 1, 1),
+                max_value=date(2030, 12, 31),
+                key="date_end_input"
             )
+            st.session_state.filter_end = end_date
         
         # Quick date presets
         st.caption("Quick select / クイック選択:")
-        preset_col1, preset_col2 = st.columns(2)
+        preset_col1, preset_col2, preset_col3 = st.columns(3)
         with preset_col1:
             if st.button("This Month", use_container_width=True):
-                start_date = date.today().replace(day=1)
-                end_date = date.today()
+                st.session_state.filter_start = date.today().replace(day=1)
+                st.session_state.filter_end = date.today()
                 st.rerun()
         with preset_col2:
             if st.button("Last Month", use_container_width=True):
                 last_month = date.today().replace(day=1) - timedelta(days=1)
-                start_date = last_month.replace(day=1)
-                end_date = last_month
+                st.session_state.filter_start = last_month.replace(day=1)
+                st.session_state.filter_end = last_month
                 st.rerun()
+        with preset_col3:
+            if st.button("All Data", use_container_width=True):
+                if db_min_date and db_max_date:
+                    st.session_state.filter_start = db_min_date.replace(day=1)
+                    if db_max_date.month == 12:
+                        st.session_state.filter_end = date(db_max_date.year, 12, 31)
+                    else:
+                        st.session_state.filter_end = db_max_date.replace(day=1, month=db_max_date.month + 1) - timedelta(days=1)
+                    st.rerun()
         
         st.divider()
         
@@ -140,14 +183,16 @@ def main():
             "Sales Reports (CSV) / 売上レポート",
             type=['csv'],
             accept_multiple_files=True,
-            help="Upload Item Sales CSV files from POS system"
+            help="Upload Item Sales CSV files from POS system",
+            key=f"sales_uploader_{st.session_state.upload_key}"
         )
         
         invoice_files = st.file_uploader(
             "Invoices (PDF/Excel) / 請求書",
             type=['pdf', 'xlsx', 'xls'],
             accept_multiple_files=True,
-            help="Upload vendor invoices (PDF or Excel)"
+            help="Upload vendor invoices (PDF or Excel)",
+            key=f"invoice_uploader_{st.session_state.upload_key}"
         )
         
         # Process and save uploaded files
@@ -193,6 +238,9 @@ def main():
                     progress_bar.progress(100)
                     progress_text.empty()
                     st.success(f"✅ Saved {saved_invoices} invoices, {saved_sales} sales records")
+                    
+                    # Clear file uploaders by incrementing the key
+                    st.session_state.upload_key += 1
                     st.rerun()
         
         st.divider()
@@ -305,7 +353,30 @@ def main():
         return
     
     # Show current data period
-    st.caption(f"📅 Showing data from **{start_date}** to **{end_date}**")
+    st.caption(f"📅 Filtering: **{start_date}** to **{end_date}**")
+    
+    # Show database summary for debugging
+    if supabase:
+        with st.expander("📊 Data Summary / データ概要", expanded=False):
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.write(f"**Sales records loaded:** {len(sales_df)}")
+                st.write(f"**Invoice records loaded:** {len(invoices_df)}")
+            with col_b:
+                if not sales_df.empty and 'date' in sales_df.columns:
+                    unique_dates = sales_df['date'].unique()
+                    st.write(f"**Unique dates in data:** {sorted(unique_dates)}")
+            
+            # Show Beef Tenderloin count specifically
+            if not sales_df.empty:
+                beef = sales_df[sales_df['name'].str.contains('Beef Tenderloin', case=False, na=False)]
+                st.write(f"**Beef Tenderloin:** {len(beef)} rows, **{beef['qty'].sum():.0f} dishes total**")
+                
+                # Show by date
+                if 'date' in beef.columns:
+                    beef_by_date = beef.groupby('date')['qty'].sum().reset_index()
+                    st.write("**Beef by date:**")
+                    st.dataframe(beef_by_date, use_container_width=True)
     
     # Display tabs for different analyses
     tab1, tab2, tab3, tab4 = st.tabs([
