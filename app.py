@@ -167,6 +167,11 @@ def display_overview(sales_df, invoices_df, beef_per_serving, caviar_per_serving
     """Display overview dashboard"""
     st.header("📊 Overview / 概要")
     
+    # Course price estimation (same as detail tabs)
+    course_price = 19480.44
+    num_courses = 6
+    estimated_course_item_price = course_price / num_courses
+    
     col1, col2 = st.columns(2)
     
     with col1:
@@ -174,7 +179,19 @@ def display_overview(sales_df, invoices_df, beef_per_serving, caviar_per_serving
         if not sales_df.empty:
             beef_sales = sales_df[sales_df['name'].str.contains('Beef Tenderloin', case=False, na=False)]
             total_beef_qty = beef_sales['qty'].sum()
-            total_beef_revenue = beef_sales['net_total'].sum()
+            
+            # Calculate revenue with course item estimation
+            beef_sales_calc = beef_sales.copy()
+            beef_sales_calc['calc_price'] = beef_sales_calc.apply(
+                lambda row: estimated_course_item_price if row['price'] == 0 or pd.isna(row['price']) else row['price'],
+                axis=1
+            )
+            beef_sales_calc['calc_revenue'] = beef_sales_calc.apply(
+                lambda row: row['net_total'] if row['net_total'] != 0 else row['qty'] * row['calc_price'],
+                axis=1
+            )
+            total_beef_revenue = beef_sales_calc['calc_revenue'].sum()
+            
             expected_beef_kg = (total_beef_qty * beef_per_serving) / 1000
             
             st.metric("Dishes Sold / 販売数", f"{total_beef_qty:.1f}")
@@ -186,7 +203,19 @@ def display_overview(sales_df, invoices_df, beef_per_serving, caviar_per_serving
         if not sales_df.empty:
             caviar_sales = sales_df[sales_df['name'].str.contains('Egg Toast Caviar', case=False, na=False)]
             total_caviar_qty = caviar_sales['qty'].sum()
-            total_caviar_revenue = caviar_sales['net_total'].sum()
+            
+            # Calculate revenue with course item estimation
+            caviar_sales_calc = caviar_sales.copy()
+            caviar_sales_calc['calc_price'] = caviar_sales_calc.apply(
+                lambda row: estimated_course_item_price if row['price'] == 0 or pd.isna(row['price']) else row['price'],
+                axis=1
+            )
+            caviar_sales_calc['calc_revenue'] = caviar_sales_calc.apply(
+                lambda row: row['net_total'] if row['net_total'] != 0 else row['qty'] * row['calc_price'],
+                axis=1
+            )
+            total_caviar_revenue = caviar_sales_calc['calc_revenue'].sum()
+            
             expected_caviar_g = total_caviar_qty * caviar_per_serving
             
             st.metric("Dishes Sold / 販売数", f"{total_caviar_qty:.1f}")
@@ -406,17 +435,27 @@ def display_caviar_analysis(sales_df, invoices_df, caviar_per_serving):
     
     expected_usage_g = total_sold * caviar_per_serving
     
-    # Caviar is typically sold in 100g units
-    total_purchased_units = len(caviar_invoices) if not caviar_invoices.empty else 0
-    total_purchased_g = total_purchased_units * 100  # Assuming 100g per unit
-    total_cost = caviar_invoices['amount'].sum() if not caviar_invoices.empty else 0
+    # Caviar is typically sold in 100g units, but quantity may be in grams or units
+    if not caviar_invoices.empty:
+        # Check if quantity is in grams (large numbers) or units (small numbers)
+        total_qty = caviar_invoices['quantity'].sum()
+        if total_qty > 100:  # Likely in grams already
+            total_purchased_g = total_qty
+        else:  # Likely in units, convert to grams
+            total_purchased_g = total_qty * 100
+        total_purchased_units = total_purchased_g / 100
+        total_cost = caviar_invoices['amount'].sum()
+    else:
+        total_purchased_g = 0
+        total_purchased_units = 0
+        total_cost = 0
     
     with col1:
         st.metric("Total Sold / 販売総数", f"{total_sold:.1f} servings")
         st.metric("Total Revenue / 売上合計", f"¥{total_revenue:,.0f}")
     
     with col2:
-        st.metric("Total Purchased / 仕入総量", f"{total_purchased_g:.0f} g ({total_purchased_units} units)")
+        st.metric("Total Purchased / 仕入総量", f"{total_purchased_g:.0f} g ({total_purchased_units:.0f} units)")
         st.metric("Total Cost / 仕入原価", f"¥{total_cost:,.0f}")
     
     with col3:
