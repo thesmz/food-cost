@@ -1,0 +1,7 @@
+# System packages for Streamlit Cloud
+# Required for OCR and PDF processing
+
+tesseract-ocr
+tesseract-ocr-jpn
+tesseract-ocr-jpn-vert
+poppler-utils
