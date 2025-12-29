@@ -85,6 +85,9 @@ def main():
             st.caption(f"📊 {summary.get('invoice_count', 0)} invoices, {summary.get('sales_count', 0)} sales records")
             if summary.get('min_date') and summary.get('max_date'):
                 st.caption(f"📅 {summary['min_date']} ~ {summary['max_date']}")
+            # Show total beef in entire database (no filter)
+            if summary.get('beef_total_in_db'):
+                st.caption(f"🥩 Total Beef in DB: **{summary['beef_total_in_db']:.0f}** dishes")
         else:
             st.markdown('<div class="db-status-disconnected">❌ Not connected / 未接続</div>', unsafe_allow_html=True)
             st.caption("Using file upload only")
@@ -173,6 +176,10 @@ def main():
                     else:
                         st.session_state.filter_end = db_max_date.replace(day=1, month=db_max_date.month + 1) - timedelta(days=1)
                     st.rerun()
+        
+        # Debug option: disable date filter
+        disable_date_filter = st.checkbox("🔧 Load ALL data (ignore dates)", value=False, 
+                                          help="Debug: Load all records without date filtering")
         
         st.divider()
         
@@ -280,10 +287,27 @@ def main():
         db_has_data = (summary.get('invoice_count', 0) > 0 or summary.get('sales_count', 0) > 0)
     
     if supabase and db_has_data:
-        # Load from database with date filter
-        with st.spinner("Loading data from database... / データベースから読み込み中..."):
+        # Load from database with date filter (or no filter if debug checkbox is checked)
+        if disable_date_filter:
+            invoices_df = load_invoices(supabase, None, None)
+            sales_df = load_sales(supabase, None, None)
+            st.info("🔧 Debug mode: Loading ALL data without date filter")
+        else:
             invoices_df = load_invoices(supabase, start_date, end_date)
             sales_df = load_sales(supabase, start_date, end_date)
+        
+        # DEBUG: Show what was actually queried
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("**🔍 Debug Info:**")
+        if disable_date_filter:
+            st.sidebar.write("Query: ALL DATA (no filter)")
+        else:
+            st.sidebar.write(f"Query: {start_date} to {end_date}")
+        st.sidebar.write(f"Sales rows returned: {len(sales_df)}")
+        if not sales_df.empty and 'date' in sales_df.columns:
+            st.sidebar.write(f"Dates in result: {sorted(sales_df['date'].unique())}")
+            beef_df = sales_df[sales_df['name'].str.contains('Beef Tenderloin', case=False, na=False)]
+            st.sidebar.write(f"Beef rows: {len(beef_df)}, qty: {beef_df['qty'].sum():.0f}")
         
         # Show message if no data in selected period (but DB has data)
         if sales_df.empty and invoices_df.empty:
@@ -402,6 +426,23 @@ def main():
 def display_overview(sales_df, invoices_df, beef_per_serving, caviar_per_serving):
     """Display overview dashboard"""
     st.header("📊 Overview / 概要")
+    
+    # DEBUG: Show raw data stats
+    with st.expander("🔍 DEBUG: Raw Data Check", expanded=True):
+        st.write(f"**Total rows in sales_df:** {len(sales_df)}")
+        if not sales_df.empty:
+            st.write(f"**Columns:** {list(sales_df.columns)}")
+            st.write(f"**Sample 'name' values:**")
+            st.write(sales_df['name'].head(10).tolist())
+            
+            # Check for Beef Tenderloin specifically
+            beef_mask = sales_df['name'].str.contains('Beef Tenderloin', case=False, na=False)
+            st.write(f"**Rows matching 'Beef Tenderloin':** {beef_mask.sum()}")
+            
+            beef_sales_debug = sales_df[beef_mask]
+            if not beef_sales_debug.empty:
+                st.write(f"**Beef qty values:** {beef_sales_debug['qty'].tolist()}")
+                st.write(f"**Beef qty sum:** {beef_sales_debug['qty'].sum()}")
     
     col1, col2 = st.columns(2)
     
