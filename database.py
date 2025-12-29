@@ -72,6 +72,7 @@ def save_invoices(supabase: Client, records: List[Dict[str, Any]]) -> int:
             chunk_size = 50
             for i in range(0, len(batch_data), chunk_size):
                 chunk = batch_data[i:i + chunk_size]
+                # Using upsert to handle potential duplicates for invoices
                 result = supabase.table('invoices').upsert(
                     chunk,
                     on_conflict='vendor,invoice_date,item_name,amount'
@@ -91,66 +92,82 @@ def save_invoices(supabase: Client, records: List[Dict[str, Any]]) -> int:
 
 def save_sales(supabase: Client, df: pd.DataFrame) -> int:
     """
-    Save sales records to Supabase
+    Save sales records to Supabase with auto-deduplication
     Returns number of records saved
     """
     if not supabase or df.empty:
         return 0
     
     saved_count = 0
-    batch_data = []
     
-    for _, row in df.iterrows():
-        try:
-            # Convert month (YYYY-MM) or date to proper date format
-            # Sales CSV has 'month' column like "2025-10"
-            sale_date = row.get('date', '') or row.get('month', '')
-            
-            if isinstance(sale_date, str):
-                # Handle YYYY-MM format (from sales CSV)
-                if re.match(r'^\d{4}-\d{2}$', sale_date):
-                    sale_date = f"{sale_date}-01"  # Add day
+    try:
+        # 1. Deduplication: Clear existing data for these months
+        # The extractor gives us a 'month' column (e.g., "2025-10")
+        if 'month' in df.columns:
+            unique_months = df['month'].unique()
+            for m_str in unique_months:
+                if m_str and len(str(m_str)) >= 7:  # Ensure it looks like YYYY-MM
+                    # Construct the date used in DB (1st of month)
+                    # This assumes your sale_date for monthly reports is stored as YYYY-MM-01
+                    date_to_clear = f"{str(m_str)[:7]}-01"
+                    # Only delete if it looks like a valid date pattern
+                    if re.match(r'^\d{4}-\d{2}-01$', date_to_clear):
+                        # print(f"Clearing existing sales data for {date_to_clear}...")
+                        supabase.table('sales').delete().eq('sale_date', date_to_clear).execute()
+        
+        # 2. Prepare new data
+        batch_data = []
+        for _, row in df.iterrows():
+            try:
+                # Convert month string or date to proper date format
+                sale_date = row.get('date', '') or row.get('month', '')
                 
-                # Handle various date formats
-                for fmt in ['%Y-%m-%d', '%Y/%m/%d', '%d/%m/%Y']:
+                if isinstance(sale_date, str):
+                    # Handle YYYY-MM format
+                    if re.match(r'^\d{4}-\d{2}$', sale_date):
+                        sale_date = f"{sale_date}-01"
+                    
+                    # Verify it's a valid date string
                     try:
-                        sale_date = datetime.strptime(sale_date, fmt).date().isoformat()
-                        break
+                        # Normalize to YYYY-MM-DD
+                        dt = datetime.strptime(sale_date, '%Y-%m-%d')
+                        sale_date = dt.date().isoformat()
                     except ValueError:
+                        # Try other formats if needed, or skip
                         continue
-            elif hasattr(sale_date, 'isoformat'):
-                sale_date = sale_date.isoformat()
-            
-            # Skip if no valid date
-            if not sale_date or sale_date == '':
-                continue
-            
-            data = {
-                'sale_date': sale_date,
-                'code': str(row.get('code', '')),
-                'item_name': str(row.get('name', '')),
-                'category': str(row.get('category', '')),
-                'qty': float(row.get('qty', 0)),
-                'price': float(row.get('price', 0)) if pd.notna(row.get('price')) else 0,
-                'net_total': float(row.get('net_total', 0)) if pd.notna(row.get('net_total')) else 0
-            }
-            
-            batch_data.append(data)
+                elif hasattr(sale_date, 'isoformat'):
+                    sale_date = sale_date.isoformat()
                 
-        except Exception as e:
-            continue
-    
-    # Batch insert (much faster than one-by-one)
-    if batch_data:
-        try:
-            # Insert in chunks of 100 to avoid timeout
+                # Skip if no valid date
+                if not sale_date:
+                    continue
+                
+                data = {
+                    'sale_date': sale_date,
+                    'code': str(row.get('code', '')),
+                    'item_name': str(row.get('name', '')),
+                    'category': str(row.get('category', '')),
+                    'qty': float(row.get('qty', 0)),
+                    'price': float(row.get('price', 0)) if pd.notna(row.get('price')) else 0,
+                    'net_total': float(row.get('net_total', 0)) if pd.notna(row.get('net_total')) else 0
+                }
+                batch_data.append(data)
+            except Exception as e:
+                continue
+        
+        # 3. Batch insert
+        if batch_data:
             chunk_size = 100
             for i in range(0, len(batch_data), chunk_size):
                 chunk = batch_data[i:i + chunk_size]
-                result = supabase.table('sales').insert(chunk).execute()
+                supabase.table('sales').insert(chunk).execute()
                 saved_count += len(chunk)
-        except Exception as e:
-            st.warning(f"Error batch saving sales: {e}")
+                
+    except Exception as e:
+        st.warning(f"Error saving sales: {e}")
+        # Print detailed error for debugging
+        import traceback
+        traceback.print_exc()
     
     return saved_count
 
@@ -173,7 +190,8 @@ def load_invoices(supabase: Client, start_date: Optional[date] = None,
         if vendor:
             query = query.ilike('vendor', f'%{vendor}%')
         
-        result = query.order('invoice_date', desc=True).execute()
+        # Increased limit to 10000 to prevent missing data
+        result = query.order('invoice_date', desc=True).limit(10000).execute()
         
         if result.data:
             df = pd.DataFrame(result.data)
@@ -208,7 +226,8 @@ def load_sales(supabase: Client, start_date: Optional[date] = None,
         if item_filter:
             query = query.ilike('item_name', f'%{item_filter}%')
         
-        result = query.order('sale_date', desc=True).execute()
+        # Increased limit to 10000 to prevent missing data
+        result = query.order('sale_date', desc=True).limit(10000).execute()
         
         if result.data:
             df = pd.DataFrame(result.data)
