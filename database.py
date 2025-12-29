@@ -6,6 +6,7 @@ Handles all data persistence for the Purchasing Evaluation System
 import streamlit as st
 from supabase import create_client, Client
 import pandas as pd
+import re
 from datetime import datetime, date
 from typing import Optional, List, Dict, Any
 
@@ -86,9 +87,16 @@ def save_sales(supabase: Client, df: pd.DataFrame) -> int:
     saved_count = 0
     for _, row in df.iterrows():
         try:
-            # Convert date
-            sale_date = row.get('date', '')
+            # Convert month (YYYY-MM) or date to proper date format
+            # Sales CSV has 'month' column like "2025-10"
+            sale_date = row.get('date', '') or row.get('month', '')
+            
             if isinstance(sale_date, str):
+                # Handle YYYY-MM format (from sales CSV)
+                if re.match(r'^\d{4}-\d{2}$', sale_date):
+                    sale_date = f"{sale_date}-01"  # Add day
+                
+                # Handle various date formats
                 for fmt in ['%Y-%m-%d', '%Y/%m/%d', '%d/%m/%Y']:
                     try:
                         sale_date = datetime.strptime(sale_date, fmt).date().isoformat()
@@ -97,6 +105,10 @@ def save_sales(supabase: Client, df: pd.DataFrame) -> int:
                         continue
             elif hasattr(sale_date, 'isoformat'):
                 sale_date = sale_date.isoformat()
+            
+            # Skip if no valid date
+            if not sale_date or sale_date == '':
+                continue
             
             data = {
                 'sale_date': sale_date,
