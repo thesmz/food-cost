@@ -298,8 +298,6 @@ def parse_hirayama_invoice(text: str) -> list:
         print(f"Extracted {len(records)} beef entries, total: ¥{calculated_total:,} (+ tax = ¥{int(calculated_total * 1.08):,})")
     
     return records
-    
-    return records
 
 
 def parse_french_fnb_invoice(text: str) -> list:
@@ -369,6 +367,7 @@ def parse_french_fnb_product_summary(text: str, invoice_year: str, invoice_month
     This format shows: product name, quantity, unit price, total amount
     """
     records = []
+    processed_amounts = set()  # Track processed amounts to avoid duplicates
     
     # Parse line by line for more accurate extraction
     lines = text.split('\n')
@@ -483,8 +482,8 @@ def parse_french_fnb_product_summary(text: str, invoice_year: str, invoice_month
                 except (ValueError, IndexError):
                     pass
         
-        # Vinegar
-        elif 'ヴィネガー' in line or 'ビネガー' in line:
+        # Vinegar - be more specific to avoid category matches
+        elif ('ヴィネガー' in line or 'ビネガー' in line) and 'シャンパン' in line:
             qty_match = re.search(r'(\d+)\s*本\s*\\?([\d,]+)', line)
             if not qty_match and i + 1 < len(lines):
                 qty_match = re.search(r'(\d+)\s*本\s*\\?([\d,]+)', lines[i + 1])
@@ -492,15 +491,19 @@ def parse_french_fnb_product_summary(text: str, invoice_year: str, invoice_month
                 try:
                     qty = int(qty_match.group(1))
                     amount = int(qty_match.group(2).replace(',', ''))
-                    records.append({
-                        'vendor': 'フレンチ・エフ・アンド・ビー (French F&B Japan)',
-                        'date': f"{invoice_year}-{invoice_month}-01",
-                        'item_name': "シャンパン ヴィネガー 500ml",
-                        'quantity': qty,
-                        'unit': 'bottle',
-                        'unit_price': amount // qty if qty > 0 else amount,
-                        'amount': amount
-                    })
+                    # Check for duplicates
+                    key = f"vinegar-{qty}-{amount}"
+                    if key not in processed_amounts:
+                        processed_amounts.add(key)
+                        records.append({
+                            'vendor': 'フレンチ・エフ・アンド・ビー (French F&B Japan)',
+                            'date': f"{invoice_year}-{invoice_month}-01",
+                            'item_name': "シャンパン ヴィネガー 500ml",
+                            'quantity': qty,
+                            'unit': 'bottle',
+                            'unit_price': amount // qty if qty > 0 else amount,
+                            'amount': amount
+                        })
                 except (ValueError, IndexError):
                     pass
         
