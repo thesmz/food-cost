@@ -211,72 +211,84 @@ def main():
     sales_df = pd.DataFrame()
     invoices_df = pd.DataFrame()
     
+    # Check if database has ANY data (regardless of date filter)
+    db_has_data = False
     if supabase:
+        summary = get_data_summary(supabase)
+        db_has_data = (summary.get('invoice_count', 0) > 0 or summary.get('sales_count', 0) > 0)
+    
+    if supabase and db_has_data:
         # Load from database with date filter
         with st.spinner("Loading data from database... / データベースから読み込み中..."):
             invoices_df = load_invoices(supabase, start_date, end_date)
             sales_df = load_sales(supabase, start_date, end_date)
-    
-    # If no database data, try to use uploaded files directly (preview mode)
-    if sales_df.empty and invoices_df.empty:
-        if sales_files or invoice_files:
-            st.info("📤 Preview mode: Showing uploaded file data. Click 'Save to Database' to persist.")
-            
-            # Process files for preview
-            all_sales = []
-            for sf in sales_files:
-                try:
-                    sf.seek(0)  # Reset file pointer
-                    temp_sales = extract_sales_data(sf)
-                    if temp_sales is not None:
-                        all_sales.append(temp_sales)
-                except Exception as e:
-                    st.warning(f"Error processing {sf.name}: {e}")
-            
-            all_invoices = []
-            for inv in invoice_files:
-                try:
-                    inv.seek(0)  # Reset file pointer
-                    invoice_data = extract_invoice_data(inv)
-                    if invoice_data:
-                        all_invoices.extend(invoice_data)
-                except Exception as e:
-                    st.warning(f"Error processing {inv.name}: {e}")
-            
-            sales_df = pd.concat(all_sales, ignore_index=True) if all_sales else pd.DataFrame()
-            invoices_df = pd.DataFrame(all_invoices) if all_invoices else pd.DataFrame()
-        else:
-            # Show welcome message
-            st.info("👆 Please upload sales reports and invoices in the sidebar, or view existing data from the database.")
-            st.info("👆 サイドバーから売上レポートと請求書をアップロードするか、データベースの既存データを表示してください。")
-            
-            with st.expander("📖 How this system works / システムの使い方"):
-                st.markdown("""
-                ### Analysis Flow / 分析フロー
-                
-                1. **Upload Data / データアップロード**
-                   - Sales CSV from POS system / POSシステムからの売上CSV
-                   - Vendor invoices (PDF) / 仕入先請求書 (PDF)
-                
-                2. **Save to Database / データベースに保存**
-                   - Data is stored persistently / データは永続的に保存されます
-                   - No need to re-upload each time / 毎回アップロードする必要はありません
-                
-                3. **Filter by Date / 期間でフィルター**
-                   - View specific time periods / 特定の期間を表示
-                   - Compare months / 月別比較
-                
-                4. **Analysis / 分析**
-                   - **Waste Ratio**: (Purchased - Expected Usage) / Purchased
-                   - **Cost Efficiency**: Ingredient Cost / Dish Revenue
-                
-                ### Vendor Mapping / 仕入先マッピング
-                | Vendor / 仕入先 | Ingredient / 食材 | Dish / 料理 |
-                |----------------|-------------------|-------------|
-                | Meat Shop Hirayama / ミートショップひら山 | 和牛ヒレ (Wagyu Tenderloin) | Beef Tenderloin |
-                | French F&B Japan / フレンチ・エフ・アンド・ビー | KAVIARI キャビア | Egg Toast Caviar |
-                """)
+        
+        # Show message if no data in selected period (but DB has data)
+        if sales_df.empty and invoices_df.empty:
+            st.warning(f"⚠️ No data found for period {start_date} to {end_date}. Try adjusting the date filter.")
+            st.info("💡 Your database has data from other periods. Use the date filter in the sidebar to view it.")
             return
+    
+    # Only show preview mode if database is empty or not connected
+    elif sales_files or invoice_files:
+        st.info("📤 Preview mode: Showing uploaded file data. Click 'Save to Database' to persist.")
+        
+        # Process files for preview
+        all_sales = []
+        for sf in sales_files:
+            try:
+                sf.seek(0)  # Reset file pointer
+                temp_sales = extract_sales_data(sf)
+                if temp_sales is not None:
+                    all_sales.append(temp_sales)
+            except Exception as e:
+                st.warning(f"Error processing {sf.name}: {e}")
+        
+        all_invoices = []
+        for inv in invoice_files:
+            try:
+                inv.seek(0)  # Reset file pointer
+                invoice_data = extract_invoice_data(inv)
+                if invoice_data:
+                    all_invoices.extend(invoice_data)
+            except Exception as e:
+                st.warning(f"Error processing {inv.name}: {e}")
+        
+        sales_df = pd.concat(all_sales, ignore_index=True) if all_sales else pd.DataFrame()
+        invoices_df = pd.DataFrame(all_invoices) if all_invoices else pd.DataFrame()
+    
+    else:
+        # Show welcome message
+        st.info("👆 Please upload sales reports and invoices in the sidebar, or view existing data from the database.")
+        st.info("👆 サイドバーから売上レポートと請求書をアップロードするか、データベースの既存データを表示してください。")
+        
+        with st.expander("📖 How this system works / システムの使い方"):
+            st.markdown("""
+            ### Analysis Flow / 分析フロー
+            
+            1. **Upload Data / データアップロード**
+               - Sales CSV from POS system / POSシステムからの売上CSV
+               - Vendor invoices (PDF) / 仕入先請求書 (PDF)
+            
+            2. **Save to Database / データベースに保存**
+               - Data is stored persistently / データは永続的に保存されます
+               - No need to re-upload each time / 毎回アップロードする必要はありません
+            
+            3. **Filter by Date / 期間でフィルター**
+               - View specific time periods / 特定の期間を表示
+               - Compare months / 月別比較
+            
+            4. **Analysis / 分析**
+               - **Waste Ratio**: (Purchased - Expected Usage) / Purchased
+               - **Cost Efficiency**: Ingredient Cost / Dish Revenue
+            
+            ### Vendor Mapping / 仕入先マッピング
+            | Vendor / 仕入先 | Ingredient / 食材 | Dish / 料理 |
+            |----------------|-------------------|-------------|
+            | Meat Shop Hirayama / ミートショップひら山 | 和牛ヒレ (Wagyu Tenderloin) | Beef Tenderloin |
+            | French F&B Japan / フレンチ・エフ・アンド・ビー | KAVIARI キャビア | Egg Toast Caviar |
+            """)
+        return
     
     # Show current data period
     st.caption(f"📅 Showing data from **{start_date}** to **{end_date}**")
