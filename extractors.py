@@ -31,27 +31,41 @@ except ImportError:
 def extract_sales_data(uploaded_file) -> pd.DataFrame:
     """
     Extract sales data from POS system CSV file
-    
-    Returns DataFrame with columns:
-    - code, name, category, qty, price, gross_total, discount, net_total, month
     """
     try:
         # Read file content
         content = uploaded_file.read()
-        uploaded_file.seek(0)  # Reset for potential re-read
+        uploaded_file.seek(0)
         
-        # Decode content - handle Windows line endings
+        # Decode content
         text_content = content.decode('utf-8').replace('\r\n', '\n').replace('\r', '\n')
         lines = text_content.strip().split('\n')
         
-        # Extract date range from header
+        # --- FIX STARTS HERE ---
+        # 1. Try extracting date from header (support dashes and slashes)
         month_str = None
-        for line in lines[:10]:
-            date_match = re.search(r'(\d{4})-(\d{2})-\d{2}', line)
+        for line in lines[:15]:  # Check first 15 lines
+            # Match YYYY-MM-DD or YYYY/MM/DD
+            date_match = re.search(r'(\d{4})[-/](\d{2})[-/]\d{2}', line)
             if date_match:
                 month_str = f"{date_match.group(1)}-{date_match.group(2)}"
                 break
         
+        # 2. Fallback: Try extracting from filename if header fails
+        if not month_str:
+            filename = uploaded_file.name
+            # Look for 2025-10 or 202510 patterns
+            file_match = re.search(r'(\d{4})[-_]?(\d{2})', filename)
+            if file_match:
+                month_str = f"{file_match.group(1)}-{file_match.group(2)}"
+            else:
+                # 3. Last resort: Use current month or warn
+                print(f"Warning: No date found in {uploaded_file.name}")
+                # Optional: default to today's month if you prefer
+                # current_date = datetime.now()
+                # month_str = f"{current_date.year}-{current_date.month:02d}"
+        # --- FIX ENDS HERE ---
+
         # Process data rows
         records = []
         in_data_section = False
