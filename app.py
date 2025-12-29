@@ -234,9 +234,25 @@ def display_beef_analysis(sales_df, invoices_df, beef_per_serving):
     
     col1, col2, col3 = st.columns(3)
     
+    # Course price estimation
+    course_price = 19480.44
+    num_courses = 6
+    estimated_course_item_price = course_price / num_courses
+    
     # Calculate metrics
     total_sold = beef_sales['qty'].sum() if not beef_sales.empty else 0
-    total_revenue = beef_sales['net_total'].sum() if not beef_sales.empty else 0
+    
+    # Calculate revenue including estimated revenue for course items
+    if not beef_sales.empty:
+        beef_sales_calc = beef_sales.copy()
+        beef_sales_calc['calc_revenue'] = beef_sales_calc.apply(
+            lambda row: row['qty'] * estimated_course_item_price if row['net_total'] == 0 else row['net_total'],
+            axis=1
+        )
+        total_revenue = beef_sales_calc['calc_revenue'].sum()
+    else:
+        total_revenue = 0
+    
     expected_usage_kg = (total_sold * beef_per_serving) / 1000
     
     # Use manual values if specified, otherwise use extracted data
@@ -294,16 +310,43 @@ def display_beef_analysis(sales_df, invoices_df, beef_per_serving):
     if not beef_sales.empty:
         st.subheader("🍽️ Sales Details / 売上明細")
         sales_display = beef_sales[['code', 'name', 'category', 'qty', 'price', 'net_total']].copy()
+        
+        # Calculate estimated price for course items (Dinner category with 0 price)
+        # Assume 6-course menu at ¥19,480.44
+        course_price = 19480.44
+        num_courses = 6
+        estimated_course_item_price = course_price / num_courses
+        
+        # Apply estimated price where price is 0 or missing
+        sales_display['price'] = sales_display.apply(
+            lambda row: estimated_course_item_price if row['price'] == 0 or pd.isna(row['price']) else row['price'], 
+            axis=1
+        )
+        
+        # Calculate estimated revenue for course items
+        sales_display['net_total'] = sales_display.apply(
+            lambda row: row['qty'] * estimated_course_item_price if row['net_total'] == 0 else row['net_total'],
+            axis=1
+        )
+        
         sales_display.columns = ['Code/コード', 'Item/品目', 'Category/カテゴリ', 'Qty/数量', 'Price/単価', 'Revenue/売上']
-        sales_display['Price/単価'] = sales_display['Price/単価'].apply(lambda x: f"¥{x:,.0f}" if x > 0 else "-")
-        sales_display['Revenue/売上'] = sales_display['Revenue/売上'].apply(lambda x: f"¥{x:,.0f}" if x > 0 else "-")
+        sales_display['Price/単価'] = sales_display['Price/単価'].apply(lambda x: f"¥{x:,.0f}")
+        sales_display['Revenue/売上'] = sales_display['Revenue/売上'].apply(lambda x: f"¥{x:,.0f}")
+        
+        # Add note about estimated prices
+        st.caption("※ Dinner course items: estimated at ¥19,480 ÷ 6 courses = ¥3,247/dish")
         st.dataframe(sales_display, use_container_width=True)
         
         # Summary by category
         st.subheader("📊 Sales by Category / カテゴリ別売上")
-        category_summary = beef_sales.groupby('category').agg({
+        beef_sales_summary = beef_sales.copy()
+        beef_sales_summary['calc_revenue'] = beef_sales_summary.apply(
+            lambda row: row['qty'] * estimated_course_item_price if row['net_total'] == 0 else row['net_total'],
+            axis=1
+        )
+        category_summary = beef_sales_summary.groupby('category').agg({
             'qty': 'sum',
-            'net_total': 'sum'
+            'calc_revenue': 'sum'
         }).reset_index()
         category_summary.columns = ['Category/カテゴリ', 'Qty/数量', 'Revenue/売上']
         category_summary['Revenue/売上'] = category_summary['Revenue/売上'].apply(lambda x: f"¥{x:,.0f}")
@@ -324,9 +367,25 @@ def display_caviar_analysis(sales_df, invoices_df, caviar_per_serving):
     
     col1, col2, col3 = st.columns(3)
     
+    # Course price estimation
+    course_price = 19480.44
+    num_courses = 6
+    estimated_course_item_price = course_price / num_courses
+    
     # Calculate metrics
     total_sold = caviar_sales['qty'].sum() if not caviar_sales.empty else 0
-    total_revenue = caviar_sales['net_total'].sum() if not caviar_sales.empty else 0
+    
+    # Calculate revenue including estimated revenue for course items
+    if not caviar_sales.empty:
+        caviar_sales_calc = caviar_sales.copy()
+        caviar_sales_calc['calc_revenue'] = caviar_sales_calc.apply(
+            lambda row: row['qty'] * estimated_course_item_price if row['net_total'] == 0 else row['net_total'],
+            axis=1
+        )
+        total_revenue = caviar_sales_calc['calc_revenue'].sum()
+    else:
+        total_revenue = 0
+    
     expected_usage_g = total_sold * caviar_per_serving
     
     # Caviar is typically sold in 100g units
@@ -381,16 +440,43 @@ def display_caviar_analysis(sales_df, invoices_df, caviar_per_serving):
     if not caviar_sales.empty:
         st.subheader("🍽️ Sales Details / 売上明細")
         sales_display = caviar_sales[['code', 'name', 'category', 'qty', 'price', 'net_total']].copy()
+        
+        # Calculate estimated price for course items (Dinner category with 0 price)
+        # Assume 6-course menu at ¥19,480.44
+        course_price = 19480.44
+        num_courses = 6
+        estimated_course_item_price = course_price / num_courses
+        
+        # Apply estimated price where price is 0 or missing
+        sales_display['price'] = sales_display.apply(
+            lambda row: estimated_course_item_price if row['price'] == 0 or pd.isna(row['price']) else row['price'], 
+            axis=1
+        )
+        
+        # Calculate estimated revenue for course items
+        sales_display['net_total'] = sales_display.apply(
+            lambda row: row['qty'] * estimated_course_item_price if row['net_total'] == 0 else row['net_total'],
+            axis=1
+        )
+        
         sales_display.columns = ['Code/コード', 'Item/品目', 'Category/カテゴリ', 'Qty/数量', 'Price/単価', 'Revenue/売上']
-        sales_display['Price/単価'] = sales_display['Price/単価'].apply(lambda x: f"¥{x:,.0f}" if x > 0 else "-")
-        sales_display['Revenue/売上'] = sales_display['Revenue/売上'].apply(lambda x: f"¥{x:,.0f}" if x > 0 else "-")
+        sales_display['Price/単価'] = sales_display['Price/単価'].apply(lambda x: f"¥{x:,.0f}")
+        sales_display['Revenue/売上'] = sales_display['Revenue/売上'].apply(lambda x: f"¥{x:,.0f}")
+        
+        # Add note about estimated prices
+        st.caption("※ Dinner course items: estimated at ¥19,480 ÷ 6 courses = ¥3,247/dish")
         st.dataframe(sales_display, use_container_width=True)
         
         # Summary by category
         st.subheader("📊 Sales by Category / カテゴリ別売上")
-        category_summary = caviar_sales.groupby('category').agg({
+        caviar_sales_summary = caviar_sales.copy()
+        caviar_sales_summary['calc_revenue'] = caviar_sales_summary.apply(
+            lambda row: row['qty'] * estimated_course_item_price if row['net_total'] == 0 else row['net_total'],
+            axis=1
+        )
+        category_summary = caviar_sales_summary.groupby('category').agg({
             'qty': 'sum',
-            'net_total': 'sum'
+            'calc_revenue': 'sum'
         }).reset_index()
         category_summary.columns = ['Category/カテゴリ', 'Qty/数量', 'Revenue/売上']
         category_summary['Revenue/売上'] = category_summary['Revenue/売上'].apply(lambda x: f"¥{x:,.0f}")
