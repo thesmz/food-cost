@@ -156,30 +156,44 @@ def main():
                 if not supabase:
                     st.error("Database not connected. Configure Supabase in Streamlit secrets.")
                 else:
-                    with st.spinner("Processing and saving... / 処理中..."):
-                        saved_invoices = 0
-                        saved_sales = 0
-                        
-                        # Process invoices
-                        for inv in invoice_files:
-                            try:
-                                invoice_data = extract_invoice_data(inv)
-                                if invoice_data:
-                                    saved_invoices += save_invoices(supabase, invoice_data)
-                            except Exception as e:
-                                st.warning(f"Error processing {inv.name}: {e}")
-                        
-                        # Process sales
-                        for sf in sales_files:
-                            try:
-                                sales_df = extract_sales_data(sf)
-                                if sales_df is not None and not sales_df.empty:
-                                    saved_sales += save_sales(supabase, sales_df)
-                            except Exception as e:
-                                st.warning(f"Error processing {sf.name}: {e}")
-                        
-                        st.success(f"✅ Saved {saved_invoices} invoices, {saved_sales} sales records")
-                        st.rerun()
+                    saved_invoices = 0
+                    saved_sales = 0
+                    
+                    # Progress bar
+                    progress_text = st.empty()
+                    progress_bar = st.progress(0)
+                    
+                    total_files = len(invoice_files) + len(sales_files)
+                    processed = 0
+                    
+                    # Process invoices
+                    for inv in invoice_files:
+                        progress_text.text(f"Processing invoice: {inv.name}...")
+                        try:
+                            invoice_data = extract_invoice_data(inv)
+                            if invoice_data:
+                                saved_invoices += save_invoices(supabase, invoice_data)
+                        except Exception as e:
+                            st.warning(f"Error processing {inv.name}: {e}")
+                        processed += 1
+                        progress_bar.progress(processed / total_files)
+                    
+                    # Process sales
+                    for sf in sales_files:
+                        progress_text.text(f"Processing sales: {sf.name}...")
+                        try:
+                            sales_df = extract_sales_data(sf)
+                            if sales_df is not None and not sales_df.empty:
+                                saved_sales += save_sales(supabase, sales_df)
+                        except Exception as e:
+                            st.warning(f"Error processing {sf.name}: {e}")
+                        processed += 1
+                        progress_bar.progress(processed / total_files)
+                    
+                    progress_bar.progress(100)
+                    progress_text.empty()
+                    st.success(f"✅ Saved {saved_invoices} invoices, {saved_sales} sales records")
+                    st.rerun()
         
         st.divider()
         
