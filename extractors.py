@@ -305,7 +305,7 @@ def parse_hirayama_invoice(text: str) -> list:
 def parse_french_fnb_invoice(text: str) -> list:
     """
     Parse French F&B Japan invoice
-    Format: Row# Date Slip# Item Name Delivery Date Tax Method Amount
+    Handles both invoice format and product summary format (商品別金額表)
     """
     records = []
     
@@ -314,87 +314,197 @@ def parse_french_fnb_invoice(text: str) -> list:
     invoice_year = month_match.group(1) if month_match else "2025"
     invoice_month = month_match.group(2).zfill(2) if month_match else "01"
     
-    # Split into lines for processing
+    # Check if this is a product summary format (商品別金額表)
+    if '商品別金額表' in text or '取引数量' in text:
+        return parse_french_fnb_product_summary(text, invoice_year, invoice_month)
+    
+    # Original invoice format parsing
     lines = text.split('\n')
     
-    # Pattern for line items
-    # Matches items with amounts like: 12025/10/016830 KAVIARI キャビア クリスタル100g セレクションJG 2025/10/01 請求一括 \117,000
-    item_patterns = [
-        # Standard pattern
-        r'(\d+)\s*(\d{4}/\d{2}/\d{2})\s*(\d+)\s+(.+?)\s+(\d{4}/\d{2}/\d{2})\s+請求一括\s*\\?([-\d,]+)',
-        # Alternative with different spacing
-        r'(\d{4}/\d{2}/\d{2})\s+\d+\s+(.+?)\s+\d{4}/\d{2}/\d{2}\s+請求一括\s*\\?([-\d,]+)',
-    ]
-    
+    # Pattern for line items with amounts
     for line in lines:
-        for pattern in item_patterns:
-            match = re.search(pattern, line)
-            if match:
+        # Look for caviar entries
+        if 'キャビア' in line or 'KAVIARI' in line or 'キャヴィア' in line:
+            # Try to extract amount
+            amount_match = re.search(r'\\?([\d,]+)\s*\\?0?\s*\\?([\d,]+)?$', line)
+            if amount_match:
                 try:
-                    groups = match.groups()
-                    if len(groups) == 6:
-                        date_str = groups[1]
-                        item_name = groups[3].strip()
-                        amount = int(groups[5].replace(',', '').replace('\\', ''))
-                    else:
-                        date_str = groups[0]
-                        item_name = groups[1].strip()
-                        amount = int(groups[2].replace(',', '').replace('\\', ''))
+                    amount = int(amount_match.group(1).replace(',', ''))
+                    records.append({
+                        'vendor': 'フレンチ・エフ・アンド・ビー (French F&B Japan)',
+                        'date': f"{invoice_year}-{invoice_month}-01",
+                        'item_name': "KAVIARI キャビア クリスタル 100g",
+                        'quantity': 1,
+                        'unit': 'pc',
+                        'unit_price': amount,
+                        'amount': amount
+                    })
+                except ValueError:
+                    continue
+        
+        # Look for butter entries
+        elif 'パレット' in line or 'ﾊﾟﾚｯﾄ' in line or 'バター' in line or 'ブール' in line:
+            amount_match = re.search(r'\\?([\d,]+)\s*\\?0?\s*\\?([\d,]+)?$', line)
+            if amount_match:
+                try:
+                    amount = int(amount_match.group(1).replace(',', ''))
+                    records.append({
+                        'vendor': 'フレンチ・エフ・アンド・ビー (French F&B Japan)',
+                        'date': f"{invoice_year}-{invoice_month}-01",
+                        'item_name': "パレット バター 20g",
+                        'quantity': 1,
+                        'unit': 'pc',
+                        'unit_price': amount,
+                        'amount': amount
+                    })
+                except ValueError:
+                    continue
+    
+    return records
+
+
+def parse_french_fnb_product_summary(text: str, invoice_year: str, invoice_month: str) -> list:
+    """
+    Parse French F&B product summary format (商品別金額表)
+    This format shows: product name, quantity, unit price, total amount
+    """
+    records = []
+    
+    # Parse line by line for more accurate extraction
+    lines = text.split('\n')
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        
+        # Caviar: look for lines with 缶 (can) unit and caviar keywords
+        if ('キャビア' in line or 'KAVIARI' in line or 'キャヴィア' in line) and '缶' in line:
+            # Pattern: quantity缶 + amount (e.g., "22缶 \429,000")
+            qty_match = re.search(r'(\d+)\s*缶\s*\\?([\d,]+)', line)
+            if qty_match:
+                try:
+                    qty = int(qty_match.group(1))
+                    amount = int(qty_match.group(2).replace(',', ''))
                     
                     records.append({
                         'vendor': 'フレンチ・エフ・アンド・ビー (French F&B Japan)',
-                        'date': date_str,
-                        'item_name': item_name,
-                        'quantity': 1,
-                        'unit': 'pc',
-                        'unit_price': amount,
+                        'date': f"{invoice_year}-{invoice_month}-01",
+                        'item_name': "KAVIARI キャビア クリスタル 100g",
+                        'quantity': qty * 100,  # Convert cans to grams
+                        'unit': 'g',
+                        'unit_price': amount // qty if qty > 0 else amount,
                         'amount': amount
                     })
-                    break
                 except (ValueError, IndexError):
-                    continue
-    
-    # If no items found with patterns, try simpler extraction for key items
-    if not records:
-        # Look for caviar entries specifically
-        caviar_pattern = r'(KAVIARI|キャビア|キャヴィア).*?\\?([\d,]+)'
-        caviar_matches = re.findall(caviar_pattern, text, re.IGNORECASE)
+                    pass
         
-        for i, match in enumerate(caviar_matches):
-            try:
-                amount = int(match[1].replace(',', ''))
-                if amount > 0:  # Skip negative adjustments
+        # Also check next line for quantity (sometimes on separate line)
+        elif ('キャビア' in line or 'KAVIARI' in line or 'キャヴィア' in line) and i + 1 < len(lines):
+            next_line = lines[i + 1]
+            qty_match = re.search(r'(\d+)\s*缶\s*\\?([\d,]+)', next_line)
+            if qty_match:
+                try:
+                    qty = int(qty_match.group(1))
+                    amount = int(qty_match.group(2).replace(',', ''))
+                    
                     records.append({
                         'vendor': 'フレンチ・エフ・アンド・ビー (French F&B Japan)',
-                        'date': f"{invoice_year}-{invoice_month}-{(i+1):02d}",
-                        'item_name': f"KAVIARI キャビア クリスタル 100g",
-                        'quantity': 1,
-                        'unit': 'pc',
-                        'unit_price': amount,
+                        'date': f"{invoice_year}-{invoice_month}-01",
+                        'item_name': "KAVIARI キャビア クリスタル 100g",
+                        'quantity': qty * 100,
+                        'unit': 'g',
+                        'unit_price': amount // qty if qty > 0 else amount,
                         'amount': amount
                     })
-            except ValueError:
-                continue
+                    i += 1  # Skip next line
+                except (ValueError, IndexError):
+                    pass
         
-        # Look for butter entries
-        butter_pattern = r'(パレット|ﾊﾟﾚｯﾄ|ブール|バラット).*?\\?([\d,]+)'
-        butter_matches = re.findall(butter_pattern, text, re.IGNORECASE)
-        
-        for i, match in enumerate(butter_matches):
-            try:
-                amount = int(match[1].replace(',', ''))
-                if amount > 0:
+        # Butter: look for PC unit
+        elif ('パレット' in line or 'ﾊﾟﾚｯﾄ' in line or 'バター' in line) and 'PC' in line:
+            qty_match = re.search(r'(\d+)\s*PC\s*\\?([\d,]+)', line)
+            if qty_match:
+                try:
+                    qty = int(qty_match.group(1))
+                    amount = int(qty_match.group(2).replace(',', ''))
+                    
                     records.append({
                         'vendor': 'フレンチ・エフ・アンド・ビー (French F&B Japan)',
-                        'date': f"{invoice_year}-{invoice_month}-{(i+1):02d}",
-                        'item_name': "パレット バター (Butter)",
-                        'quantity': 1,
+                        'date': f"{invoice_year}-{invoice_month}-01",
+                        'item_name': "パレット バター 20g",
+                        'quantity': qty,
                         'unit': 'pc',
-                        'unit_price': amount,
+                        'unit_price': amount // qty if qty > 0 else amount,
                         'amount': amount
                     })
-            except ValueError:
-                continue
+                except (ValueError, IndexError):
+                    pass
+        
+        # Also check next line for butter quantity
+        elif ('パレット' in line or 'ﾊﾟﾚｯﾄ' in line or 'バター' in line) and i + 1 < len(lines):
+            next_line = lines[i + 1]
+            qty_match = re.search(r'(\d+)\s*PC\s*\\?([\d,]+)', next_line)
+            if qty_match:
+                try:
+                    qty = int(qty_match.group(1))
+                    amount = int(qty_match.group(2).replace(',', ''))
+                    
+                    records.append({
+                        'vendor': 'フレンチ・エフ・アンド・ビー (French F&B Japan)',
+                        'date': f"{invoice_year}-{invoice_month}-01",
+                        'item_name': "パレット バター 20g",
+                        'quantity': qty,
+                        'unit': 'pc',
+                        'unit_price': amount // qty if qty > 0 else amount,
+                        'amount': amount
+                    })
+                    i += 1
+                except (ValueError, IndexError):
+                    pass
+        
+        # Mushroom
+        elif 'ジロール' in line:
+            qty_match = re.search(r'(\d+)\s*kg\s*\\?([\d,]+)', line)
+            if not qty_match and i + 1 < len(lines):
+                qty_match = re.search(r'(\d+)\s*kg\s*\\?([\d,]+)', lines[i + 1])
+            if qty_match:
+                try:
+                    qty = int(qty_match.group(1))
+                    amount = int(qty_match.group(2).replace(',', ''))
+                    records.append({
+                        'vendor': 'フレンチ・エフ・アンド・ビー (French F&B Japan)',
+                        'date': f"{invoice_year}-{invoice_month}-01",
+                        'item_name': "生 スモールジロール",
+                        'quantity': qty,
+                        'unit': 'kg',
+                        'unit_price': amount // qty if qty > 0 else amount,
+                        'amount': amount
+                    })
+                except (ValueError, IndexError):
+                    pass
+        
+        # Vinegar
+        elif 'ヴィネガー' in line or 'ビネガー' in line:
+            qty_match = re.search(r'(\d+)\s*本\s*\\?([\d,]+)', line)
+            if not qty_match and i + 1 < len(lines):
+                qty_match = re.search(r'(\d+)\s*本\s*\\?([\d,]+)', lines[i + 1])
+            if qty_match:
+                try:
+                    qty = int(qty_match.group(1))
+                    amount = int(qty_match.group(2).replace(',', ''))
+                    records.append({
+                        'vendor': 'フレンチ・エフ・アンド・ビー (French F&B Japan)',
+                        'date': f"{invoice_year}-{invoice_month}-01",
+                        'item_name': "シャンパン ヴィネガー 500ml",
+                        'quantity': qty,
+                        'unit': 'bottle',
+                        'unit_price': amount // qty if qty > 0 else amount,
+                        'amount': amount
+                    })
+                except (ValueError, IndexError):
+                    pass
+        
+        i += 1
     
     return records
 
