@@ -167,11 +167,6 @@ def display_overview(sales_df, invoices_df, beef_per_serving, caviar_per_serving
     """Display overview dashboard"""
     st.header("📊 Overview / 概要")
     
-    # Course price estimation (same as detail tabs)
-    course_price = 19480.44
-    num_courses = 6
-    estimated_course_item_price = course_price / num_courses
-    
     col1, col2 = st.columns(2)
     
     with col1:
@@ -180,10 +175,11 @@ def display_overview(sales_df, invoices_df, beef_per_serving, caviar_per_serving
             beef_sales = sales_df[sales_df['name'].str.contains('Beef Tenderloin', case=False, na=False)]
             total_beef_qty = beef_sales['qty'].sum()
             
-            # Calculate revenue with course item estimation
+            # Calculate revenue with fixed dinner price ¥5,682
+            beef_dinner_price = 5682
             beef_sales_calc = beef_sales.copy()
             beef_sales_calc['calc_price'] = beef_sales_calc.apply(
-                lambda row: estimated_course_item_price if row['price'] == 0 or pd.isna(row['price']) else row['price'],
+                lambda row: beef_dinner_price if row['price'] == 0 or pd.isna(row['price']) else row['price'],
                 axis=1
             )
             beef_sales_calc['calc_revenue'] = beef_sales_calc.apply(
@@ -204,10 +200,11 @@ def display_overview(sales_df, invoices_df, beef_per_serving, caviar_per_serving
             caviar_sales = sales_df[sales_df['name'].str.contains('Egg Toast Caviar', case=False, na=False)]
             total_caviar_qty = caviar_sales['qty'].sum()
             
-            # Calculate revenue with course item estimation
+            # Calculate revenue with fixed dinner price (same as lunch price)
+            caviar_dinner_price = 3247  # Course item estimate
             caviar_sales_calc = caviar_sales.copy()
             caviar_sales_calc['calc_price'] = caviar_sales_calc.apply(
-                lambda row: estimated_course_item_price if row['price'] == 0 or pd.isna(row['price']) else row['price'],
+                lambda row: caviar_dinner_price if row['price'] == 0 or pd.isna(row['price']) else row['price'],
                 axis=1
             )
             caviar_sales_calc['calc_revenue'] = caviar_sales_calc.apply(
@@ -263,10 +260,8 @@ def display_beef_analysis(sales_df, invoices_df, beef_per_serving):
     
     col1, col2, col3 = st.columns(3)
     
-    # Course price estimation
-    course_price = 19480.44
-    num_courses = 6
-    estimated_course_item_price = course_price / num_courses
+    # Fixed price for Beef Tenderloin Dinner course items
+    beef_dinner_price = 5682
     
     # Calculate metrics
     total_sold = beef_sales['qty'].sum() if not beef_sales.empty else 0
@@ -274,9 +269,9 @@ def display_beef_analysis(sales_df, invoices_df, beef_per_serving):
     # Calculate revenue including estimated revenue for course items
     if not beef_sales.empty:
         beef_sales_calc = beef_sales.copy()
-        # First fill in price where missing
+        # Use fixed dinner price where price is 0
         beef_sales_calc['calc_price'] = beef_sales_calc.apply(
-            lambda row: estimated_course_item_price if row['price'] == 0 or pd.isna(row['price']) else row['price'],
+            lambda row: beef_dinner_price if row['price'] == 0 or pd.isna(row['price']) else row['price'],
             axis=1
         )
         # Then calculate revenue: use net_total if exists, otherwise qty * price
@@ -346,15 +341,12 @@ def display_beef_analysis(sales_df, invoices_df, beef_per_serving):
         st.subheader("🍽️ Sales Details / 売上明細")
         sales_display = beef_sales[['code', 'name', 'category', 'qty', 'price', 'net_total']].copy()
         
-        # Calculate estimated price for course items (Dinner category with 0 price)
-        # Assume 6-course menu at ¥19,480.44
-        course_price = 19480.44
-        num_courses = 6
-        estimated_course_item_price = course_price / num_courses
+        # Fixed price for Beef Tenderloin Dinner course items
+        beef_dinner_price = 5682
         
-        # Apply estimated price only where price is 0 or missing
+        # Apply fixed price for Dinner items, keep original for others
         sales_display['price'] = sales_display.apply(
-            lambda row: estimated_course_item_price if row['price'] == 0 or pd.isna(row['price']) else row['price'], 
+            lambda row: beef_dinner_price if (row['price'] == 0 or pd.isna(row['price'])) else row['price'], 
             axis=1
         )
         
@@ -369,15 +361,15 @@ def display_beef_analysis(sales_df, invoices_df, beef_per_serving):
         sales_display['Revenue/売上'] = sales_display['Revenue/売上'].apply(lambda x: f"¥{x:,.0f}")
         
         # Add note about estimated prices
-        st.caption("※ Dinner course items: estimated at ¥19,480 ÷ 6 courses = ¥3,247/dish")
+        st.caption("※ Dinner course items: estimated at ¥5,682/dish")
         st.dataframe(sales_display, use_container_width=True)
         
         # Summary by category
         st.subheader("📊 Sales by Category / カテゴリ別売上")
         beef_sales_summary = beef_sales.copy()
-        # First fill in price where missing
+        # Use fixed dinner price where price is 0
         beef_sales_summary['calc_price'] = beef_sales_summary.apply(
-            lambda row: estimated_course_item_price if row['price'] == 0 or pd.isna(row['price']) else row['price'],
+            lambda row: beef_dinner_price if row['price'] == 0 or pd.isna(row['price']) else row['price'],
             axis=1
         )
         # Then calculate revenue: use net_total if exists, otherwise qty * price
